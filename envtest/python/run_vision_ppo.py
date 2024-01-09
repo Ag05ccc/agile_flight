@@ -69,7 +69,7 @@ def main():
 
     # save the configuration and other files
     rsg_root = os.path.dirname(os.path.abspath(__file__))
-    log_dir = rsg_root + "/saved"
+    log_dir = rsg_root + "/../saved"
     os.makedirs(log_dir, exist_ok=True)
 
     #

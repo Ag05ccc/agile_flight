@@ -53,11 +53,13 @@ def rl_example(state, obstacles, rl_policy=None):
     command.bodyrates = action[1:4] 
     return command
 
-def load_rl_policy(policy_path):
-    # policy_dir = policy_path  + "/Policy/iter_00500.pth" 
-    # rms_dir = policy_path + "/RMS/iter_00500.npz" 
-    policy_dir = policy_path  + "/Policy/iter_02000.pth" 
-    rms_dir = policy_path + "/RMS/iter_02000.npz" 
+def load_rl_policy(policy_path, iter_num="00500"):
+    
+    iter_num = str(iter_num)
+    policy_path = os.path.join(os.path.dirname(os.path.abspath(__file__)))+policy_path
+
+    policy_dir = policy_path  + "/Policy/iter_"+iter_num+".pth" 
+    rms_dir = policy_path + "/RMS/iter_"+iter_num+".npz" 
     cfg_dir =  policy_path + "/config.yaml"
 
     # action 

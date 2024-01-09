@@ -23,14 +23,17 @@ rostopic pub /kingfisher/dodgeros_pilot/reset_sim std_msgs/Empty "{}"
 # TRAIN
 cd /home/gazi13/catkin_ws_agile/src/agile_flight/envtest/
 python3 -m python.run_vision_ppo --render 0 --train 1
+python3 -m python.run_agile_ppo --render 0 --train 1
 
 
 # INFERENCE 
 # Benim denediğim komut
 roslaunch envsim visionenv_sim.launch render:=True
 cd /home/gazi13/catkin_ws_agile/src/agile_flight/envtest/ros
-python run_competition.py --ppo_path=/home/gazi13/catkin_ws_agile/src/agile_flight/envtest/python/saved/PPO_18
+cd /home/gazi13/catkin_ws_agile/src/agile_flight/envtest/
+python run_competition.py --ppo_path=/home/gazi13/catkin_ws_agile/src/agile_flight/envtest/python/saved/PPO_20
 rostopic pub /kingfisher/start_navigation std_msgs/Empty "{}" -1
+rostopic pub /kingfisher/dodgeros_pilot/reset_sim std_msgs/Empty "{}"
 
 # Dökümantasyon içerisindeki komut - trial_num kacinci egitim oldugu - iter de iterasyon numarasi
 python3 -m python.run_vision_ppo --render 0 --train 0 --trial trial_num --iter iter_num 

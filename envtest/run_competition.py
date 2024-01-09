@@ -21,14 +21,15 @@ from utils_agile import AgileCommandMode, AgileQuadState
 
 
 class AgilePilotNode:
-    def __init__(self, vision_based=False, ppo_path=None):
+    def __init__(self, vision_based=False, ppo_path=None, iter_num="00500"):
         print("Initializing agile_pilot_node...")
-        rospy.init_node('agile_pilot_node', anonymous=False)
-
+        
+        print("ppo_path : ",ppo_path)
+        print("iter_num : ",iter_num)
         self.vision_based = vision_based
         self.rl_policy = None
         if ppo_path is not None:
-            self.rl_policy = load_rl_policy(ppo_path)
+            self.rl_policy = load_rl_policy(ppo_path, iter_num)
         self.publish_commands = False
         self.cv_bridge = CvBridge()
         self.state = None
@@ -134,10 +135,18 @@ if __name__ == '__main__':
     # args = parser.parse_args()
 
     # Use rospy to get parameters
-    vision_based = rospy.get_param('~vision_based', False)  # Provide a default value
-    ppo_path = rospy.get_param('~ppo_path', '/home/gazi13/catkin_ws_agile/src/agile_flight/envtest/python/saved/PPO_20')  # Provide a default value
+    rospy.init_node('agile_pilot_node', anonymous=False)
+    vision_based = rospy.get_param(param_name='~vision_based', default=False)  # Provide a default value
+    ppo_path = rospy.get_param(param_name='~ppo_path')  # Provide a default value
+    iter_num = rospy.get_param(param_name='~iter_num')  # Provide a default value
 
+    print("--------------------------------------------")
+    print("--------------------------------------------")
+    print("ppo_path : ",ppo_path)
+    print("iter_num : ",iter_num)
+    print("--------------------------------------------")
+    print("--------------------------------------------")
     # DEBUG
-    agile_pilot_node = AgilePilotNode(vision_based=vision_based, ppo_path=ppo_path)
+    agile_pilot_node = AgilePilotNode(vision_based=vision_based, ppo_path=ppo_path, iter_num=iter_num)
     # agile_pilot_node = AgilePilotNode(vision_based=args.vision_based, ppo_path=args.ppo_path)
     rospy.spin()
