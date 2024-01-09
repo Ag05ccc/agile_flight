@@ -1,4 +1,5 @@
-#!/usr/bin/python3
+#!/home/gazi13/env-pinn/env-pinn/bin/python
+#...!/usr/bin/python3
 import argparse
 
 import rospy
@@ -12,7 +13,11 @@ from std_msgs.msg import Empty
 from envsim_msgs.msg import ObstacleArray
 from rl_example import load_rl_policy
 from user_code import compute_command_vision_based, compute_command_state_based
-from utils import AgileCommandMode, AgileQuadState
+from utils_agile import AgileCommandMode, AgileQuadState
+
+
+# import sys
+# print("run_competition : ",sys.path)
 
 
 class AgilePilotNode:
@@ -44,7 +49,11 @@ class AgilePilotNode:
                                              self.obstacle_callback, queue_size=1, tcp_nodelay=True)
 
         # Command publishers
+        # NOT
+        # KONTROL KOMUTUNU CMD_PUB PAYLASIYOR
         self.cmd_pub = rospy.Publisher("/" + quad_name + "/dodgeros_pilot/feedthrough_command", Command, queue_size=1)
+        self.cmd_debug_pub = rospy.Publisher("/debug_cmd", Command, queue_size=1)
+
         self.linvel_pub = rospy.Publisher("/" + quad_name + "/dodgeros_pilot/velocity_command", TwistStamped,
                                           queue_size=1)
         print("Initialization completed!")
@@ -70,6 +79,8 @@ class AgilePilotNode:
         self.publish_command(command)
 
     def publish_command(self, command):
+        # CTBR = 1 - PRINT 1 YAZDI
+        # print("COMMAND.MODE : ",command.mode) 
         if command.mode == AgileCommandMode.SRT:
             assert len(command.rotor_thrusts) == 4
             cmd_msg = Command()
@@ -90,6 +101,7 @@ class AgilePilotNode:
             cmd_msg.bodyrates.x = command.bodyrates[0]
             cmd_msg.bodyrates.y = command.bodyrates[1]
             cmd_msg.bodyrates.z = command.bodyrates[2]
+            self.cmd_debug_pub.publish(cmd_msg)
             if self.publish_commands:
                 self.cmd_pub.publish(cmd_msg)
                 return
@@ -114,11 +126,18 @@ class AgilePilotNode:
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Agile Pilot.')
-    parser.add_argument('--vision_based', help='Fly vision-based', required=False, dest='vision_based',
-                        action='store_true')
-    parser.add_argument('--ppo_path', help='PPO neural network policy', required=False,  default=None)
+    # parser = argparse.ArgumentParser(description='Agile Pilot.')
+    # parser.add_argument('--vision_based', help='Fly vision-based', required=False, dest='vision_based',
+    #                     action='store_true')
+    # parser.add_argument('--ppo_path', help='PPO neural network policy', required=False,  default='')
 
-    args = parser.parse_args()
-    agile_pilot_node = AgilePilotNode(vision_based=args.vision_based, ppo_path=args.ppo_path)
+    # args = parser.parse_args()
+
+    # Use rospy to get parameters
+    vision_based = rospy.get_param('~vision_based', False)  # Provide a default value
+    ppo_path = rospy.get_param('~ppo_path', '/home/gazi13/catkin_ws_agile/src/agile_flight/envtest/python/saved/PPO_20')  # Provide a default value
+
+    # DEBUG
+    agile_pilot_node = AgilePilotNode(vision_based=vision_based, ppo_path=ppo_path)
+    # agile_pilot_node = AgilePilotNode(vision_based=args.vision_based, ppo_path=args.ppo_path)
     rospy.spin()

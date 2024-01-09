@@ -1,7 +1,8 @@
 #!/usr/bin/python3
 
 import numpy as np
-
+# import sys
+# print("utils : ",sys.path)
 
 class AgileCommandMode(object):
     """Defines the command type."""

@@ -1,4 +1,5 @@
-#!/usr/bin/python3
+#!/home/gazi13/env-pinn/env-pinn/bin/python
+#...!/usr/bin/python3
 
 import os
 
@@ -7,12 +8,15 @@ import numpy as np
 
 # 
 from ruamel.yaml import YAML
-from utils import AgileCommand
+from utils_agile import AgileCommand
 from scipy.spatial.transform import Rotation as R
 
 # stable baselines 
 from stable_baselines3.common.utils import get_device
 from stable_baselines3.ppo.policies import MlpPolicy
+
+# import sys
+# print("rl_example : ",sys.path)
 
 def normalize_obs(obs, obs_mean, obs_var):
     return (obs - obs_mean) / np.sqrt(obs_var + 1e-8)
@@ -50,8 +54,10 @@ def rl_example(state, obstacles, rl_policy=None):
     return command
 
 def load_rl_policy(policy_path):
-    policy_dir = policy_path  + "/Policy/iter_00500.pth" 
-    rms_dir = policy_path + "/RMS/iter_00500.npz" 
+    # policy_dir = policy_path  + "/Policy/iter_00500.pth" 
+    # rms_dir = policy_path + "/RMS/iter_00500.npz" 
+    policy_dir = policy_path  + "/Policy/iter_02000.pth" 
+    rms_dir = policy_path + "/RMS/iter_02000.npz" 
     cfg_dir =  policy_path + "/config.yaml"
 
     # action 

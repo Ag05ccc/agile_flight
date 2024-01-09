@@ -10,4 +10,4 @@ timeout: 30  # after [timeout] seconds without arriving at the desired distance 
 bounding_box: [-5, 65, -10, 10, 0, 10] # when exiting this bounding box, the episode is considered a failure
 
 # if you really don't want the cool plots, put this to False
-plots: True
+plots: False

@@ -2,7 +2,7 @@
 
 
 from pickle import NONE
-from utils import AgileCommandMode, AgileCommand
+from utils_agile import AgileCommandMode, AgileCommand
 from rl_example import rl_example
 
 

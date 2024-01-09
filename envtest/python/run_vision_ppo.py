@@ -13,6 +13,7 @@ from ruamel.yaml import YAML, RoundTripDumper, dump
 from stable_baselines3.common.utils import get_device
 from stable_baselines3.ppo.policies import MlpPolicy
 
+
 from rpg_baselines.torch.common.ppo import PPO
 from rpg_baselines.torch.envs import vec_env_wrapper as wrapper
 from rpg_baselines.torch.common.util import test_policy
@@ -99,13 +100,16 @@ def main():
 
         #
         model.learn(total_timesteps=int(5 * 1e7), log_interval=(10, 50))
+
     else:
         if args.render:
             proc = subprocess.Popen(os.environ["FLIGHTMARE_PATH"] + "/flightrender/RPG_Flightmare.x86_64")
         #
         weight = rsg_root + "/saved/PPO_{0}/Policy/iter_{1:05d}.pth".format(args.trial, args.iter)
         env_rms = rsg_root +"/saved/PPO_{0}/RMS/iter_{1:05d}.npz".format(args.trial, args.iter)
-
+        print("WRGIHT PATH : ", weight)
+        print("WRGIHT PATH : ", weight)
+        print("WRGIHT PATH : ", weight)
         device = get_device("auto")
         saved_variables = torch.load(weight, map_location=device)
         # Create policy object
