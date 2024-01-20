@@ -49,6 +49,9 @@ def main():
     if not args.train:
         cfg["simulation"]["num_envs"] = 1 
 
+
+    print(cfg["environment"]["goal_vel"])
+
     # create training environment
     train_env = AgileEnv_v1(dump(cfg, Dumper=RoundTripDumper), False)
     train_env = wrapper.FlightEnvVec(train_env)
@@ -80,6 +83,7 @@ def main():
             policy_kwargs=dict(
                 activation_fn=torch.nn.ReLU,
                 net_arch=[dict(pi=[256, 256], vf=[512, 512])],
+                # net_arch=[dict(pi=[64, 64], vf=[64, 64])],
                 log_std_init=-0.5,
             ),
             env=train_env,
@@ -105,8 +109,8 @@ def main():
         if args.render:
             proc = subprocess.Popen(os.environ["FLIGHTMARE_PATH"] + "/flightrender/RPG_Flightmare.x86_64")
         #
-        weight = rsg_root + "/saved/PPO_{0}/Policy/iter_{1:05d}.pth".format(args.trial, args.iter)
-        env_rms = rsg_root +"/saved/PPO_{0}/RMS/iter_{1:05d}.npz".format(args.trial, args.iter)
+        weight = rsg_root + "/../saved/PPO_{0}/Policy/iter_{1:05d}.pth".format(args.trial, args.iter)
+        env_rms = rsg_root +"/../saved/PPO_{0}/RMS/iter_{1:05d}.npz".format(args.trial, args.iter)
         print("WRGIHT PATH : ", weight)
         print("WRGIHT PATH : ", weight)
         print("WRGIHT PATH : ", weight)

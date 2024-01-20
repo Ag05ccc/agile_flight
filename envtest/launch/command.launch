@@ -3,9 +3,9 @@
     <arg name="quad_name" default="kingfisher"/>
 
     <node name="agile_pilot_node" pkg="envtest" type="run_competition.py" output="screen">
-        <param name="vision_based" value="$(find dodgelib)/params"/>
-        <param name="ppo_path" value="/saved/PPO_1"/>
-        <param name="iter_num" type="str" value="01100"/>
+        <param name="vision_based" value="False"/>
+        <param name="ppo_path" value="/saved/PPO_20"/>
+        <param name="iter_num" type="str" value="00850"/>
     </node>
     
 

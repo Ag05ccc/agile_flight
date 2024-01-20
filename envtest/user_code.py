@@ -73,6 +73,7 @@ def compute_command_state_based(state, obstacles, rl_policy=None):
 
     # If you want to test your RL policy
     if rl_policy is not None:
+        print("Computing command based on RL POLICY !")
         command = rl_example(state, obstacles, rl_policy)
 
     ################################################

@@ -22,7 +22,7 @@ rostopic pub /kingfisher/dodgeros_pilot/reset_sim std_msgs/Empty "{}"
 --------------------------------------------------------
 # TRAIN
 cd /home/gazi13/catkin_ws_agile/src/agile_flight/envtest/
-python3 -m python.run_vision_ppo --render 0 --train 1
+#python3 -m python.run_vision_ppo --render 0 --train 1
 python3 -m python.run_agile_ppo --render 0 --train 1
 
 
@@ -38,6 +38,9 @@ rostopic pub /kingfisher/dodgeros_pilot/reset_sim std_msgs/Empty "{}"
 # Dökümantasyon içerisindeki komut - trial_num kacinci egitim oldugu - iter de iterasyon numarasi
 python3 -m python.run_vision_ppo --render 0 --train 0 --trial trial_num --iter iter_num 
 python3 -m python.run_vision_ppo --render 1 --train 0 --trial 00 --iter 500 
+
+python3 -m python.run_vision_ppo --render 1 --train 0 --trial 06 --iter 2000 
+python3 -m python.run_agile_ppo --render 1 --train 0 --trial 6 --iter 2000 
 
 
 

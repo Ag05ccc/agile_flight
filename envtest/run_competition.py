@@ -60,6 +60,7 @@ class AgilePilotNode:
         print("Initialization completed!")
 
     def img_callback(self, img_data):
+
         if not self.vision_based:
             return
         if self.state is None:
@@ -72,6 +73,7 @@ class AgilePilotNode:
         self.state = AgileQuadState(state_data)
 
     def obstacle_callback(self, obs_data):
+
         if self.vision_based:
             return
         if self.state is None:
@@ -81,7 +83,8 @@ class AgilePilotNode:
 
     def publish_command(self, command):
         # CTBR = 1 - PRINT 1 YAZDI
-        # print("COMMAND.MODE : ",command.mode) 
+        # CTBR = 2 - PRINT 2 YAZDI ???
+        print("COMMAND.MODE : ",command.mode) 
         if command.mode == AgileCommandMode.SRT:
             assert len(command.rotor_thrusts) == 4
             cmd_msg = Command()
