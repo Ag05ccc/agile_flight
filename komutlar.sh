@@ -29,6 +29,8 @@ python3 -m python.run_agile_ppo --render 0 --train 1
 # INFERENCE 
 # Benim denediğim komut
 roslaunch envsim visionenv_sim.launch render:=True
+
+
 cd /home/gazi13/catkin_ws_agile/src/agile_flight/envtest/ros
 cd /home/gazi13/catkin_ws_agile/src/agile_flight/envtest/
 python run_competition.py --ppo_path=/home/gazi13/catkin_ws_agile/src/agile_flight/envtest/python/saved/PPO_20
@@ -39,8 +41,12 @@ rostopic pub /kingfisher/dodgeros_pilot/reset_sim std_msgs/Empty "{}"
 python3 -m python.run_vision_ppo --render 0 --train 0 --trial trial_num --iter iter_num 
 python3 -m python.run_vision_ppo --render 1 --train 0 --trial 00 --iter 500 
 
-python3 -m python.run_vision_ppo --render 1 --train 0 --trial 06 --iter 2000 
-python3 -m python.run_agile_ppo --render 1 --train 0 --trial 6 --iter 2000 
+
+cd /home/gazi13/catkin_ws_agile/src/agile_flight/envtest/
+# python3 -m python.run_vision_ppo --render 1 --train 0 --trial 06 --iter 2000 
+python3 -m python.run_agile_ppo --render 1 --train 0 --trial 61 --iter 1700 
+python3 -m python.run_agile_ppo --render 1 --train 0 --trial 67 --iter 150
+# python3 -m python.run_vision_ppo --render 1 --train 0 --trial 20 --iter 800 
 
 
 
