@@ -49,6 +49,16 @@ def parser():
     parser.add_argument("--iter", type=int, default=100, help="PPO iter number")
     return parser
 
+def save_mode_custom(name: str, policy):
+    
+    rsg_root = os.path.dirname(os.path.abspath(__file__))
+    policy_path = rsg_root + "/../save_imitation/policy_imitation/"
+    os.makedirs(policy_path, exist_ok=True)
+    policy.save(policy_path + "/"+ name + ".pth")
+    print("BC Trained Policy Saved ...  ",policy_path)
+    # self.venv.save_rms(
+    #     save_dir=self.logger.get_dir() + "/RMS_imitation", n_iter=batch_num
+    # )
 
 def main():
     args = parser().parse_args()
@@ -58,7 +68,7 @@ def main():
 
     if not args.train and not args.teach:
         cfg["simulation"]["num_envs"] = 1
-    cfg["simulation"]["num_envs"] = 3
+    
 
     # 1- Training environment
     train_env = AgileEnv_v1(dump(cfg, Dumper=RoundTripDumper), False)
@@ -134,23 +144,24 @@ def main():
         env_rms = rsg_root +"/../saved/PPO_{0}/RMS/iter_{1:05d}.npz".format(args.trial, args.iter)
         saved_variables = torch.load(weight, map_location="cuda")
         
-        expert_reward = -1
-        while expert_reward<0:
-            # Create policy object
-            expert = MlpPolicy(**saved_variables["data"])
-            #
-            # expert.action_net = torch.nn.Sequential(expert.action_net, torch.nn.Tanh())
-            # Load weights
-            expert.load_state_dict(saved_variables["state_dict"], strict=False)
-            expert.to("cuda")
-            # 
-            eval_env.load_rms(env_rms)
+        # Create policy object
+        expert = MlpPolicy(**saved_variables["data"])
+        #
+        # expert.action_net = torch.nn.Sequential(expert.action_net, torch.nn.Tanh())
+        # Load weights
+        expert.load_state_dict(saved_variables["state_dict"], strict=False)
+        expert.to("cuda")
+        # 
+        eval_env.load_rms(env_rms)
 
-            # --------------------- BC TRAINING -----------------------
-            expert_reward, _ = evaluate_policy(expert, eval_env, n_eval_episodes=10)
-            print(f"Expert Policy Reward: {expert_reward}")
-            print(f"Expert Policy Reward: {expert_reward}")
-            print(f"Expert Policy Reward: {expert_reward}")
+        # --------------------- BC TRAINING -----------------------
+        expert_reward, _ = evaluate_policy(expert, eval_env, n_eval_episodes=10)
+        print(f"Expert Policy Reward: {expert_reward}")
+        print(f"Expert Policy Reward: {expert_reward}")
+        print(f"Expert Policy Reward: {expert_reward}")
+        if expert_reward < 0:
+            print("Expert Policy Reward is too low. BC training will not be performed.")
+            exit()
         
 
         # 3- Rollout
@@ -174,18 +185,32 @@ def main():
 
         reward_before_training, _ = evaluate_policy(bc_trainer.policy, eval_env, 10)
         print(f"Reward before training: {reward_before_training}")
-        # BURASI CALISMIYOR - REWARD ARTMIYOR
-        bc_trainer.train(n_epochs=100)
-        print("------------- BC TRAINING DONE ---------------")
+        
+        # Train the Behavioral Clonning Model
+        bc_trainer.train(n_epochs=3)
+        
         reward_after_training, _ = evaluate_policy(bc_trainer.policy, eval_env, 10)
         print(f"Reward before training: {reward_before_training}")
         print(f"Reward after training: {reward_after_training}")
         print(f"Expert Policy Reward: {expert_reward}")
-        # --------------------- BC TRAINING END -----------------------
-        # --------------------- BC TRAINING END -----------------------
-        bc_trainer.policy.save("bc_policy")
+        
+        
+        # Save the trained policy
+        save_mode_custom(name="policy_imitation", policy=bc_trainer.policy)
+
+
+        # bc_trainer.policy.save("bc_policy")
+        # from stable_baselines3.common.save_util import save_to_zip_file
+        # from imitation.util.util import save_policy
+        # save_policy(bc_trainer.policy, "bc_policy_1")
+        # # save_stable_model(bc_trainer.policy, "bc_policy_1")
+        # # data = bc_trainer.policy._get_constructor_parameters()
+        # # state_dict = bc_trainer.policy.state_dict()
+        # # save_to_zip_file("bc_policy_1", data=data, params=state_dict)
         
     if args.test:
+        
+        print("Test start ....")
         
         # Define device
         device = get_device("auto")
@@ -194,29 +219,53 @@ def main():
         if args.render:
             proc = subprocess.Popen(os.environ["FLIGHTMARE_PATH"] + "/flightrender/RPG_Flightmare.x86_64")
 
-        # Policy Path
-        weight = rsg_root + "/../saved/PPO_{0}/Policy/iter_{1:05d}.pth".format(args.trial, args.iter)
-        env_rms = rsg_root +"/../saved/PPO_{0}/RMS/iter_{1:05d}.npz".format(args.trial, args.iter)
+        # SB3 Policy Path
+        # weight = rsg_root + "/../saved/PPO_{0}/Policy/iter_{1:05d}.pth".format(args.trial, args.iter)
+        # env_rms = rsg_root +"/../saved/PPO_{0}/RMS/iter_{1:05d}.npz".format(args.trial, args.iter)
         
-        # 1- Load Policy from pth file
+        # Imitation Policy Path
+        weight = "/home/gazi13/catkin_ws_agile/src/agile_flight/envtest/save_imitation/policy_imitation/policy_imitation.pth"
+        env_rms = None
+        
+        # # 1- Load Policy from pth file
         saved_variables = torch.load(weight, map_location=device)
-        expert = MlpPolicy(**saved_variables["data"])
+        demo_policy = MlpPolicy(**saved_variables["data"])
         # @TODO: Why tanh is used? 
-        # expert.action_net = torch.nn.Sequential(expert.action_net, torch.nn.Tanh())
+        # demo_policy.action_net = torch.nn.Sequential(demo_policy.action_net, torch.nn.Tanh())
+        
         # Load weights
-        expert.load_state_dict(saved_variables["state_dict"], strict=False)
-        expert.to(device)
+        demo_policy.load_state_dict(saved_variables["state_dict"], strict=False)
+        demo_policy.to(device)
+        if env_rms is not None:
+            eval_env.load_rms(env_rms)
         
         # 2- Load Policy from zip file 
-        # expert = PPO.load("ppo_expert", env=train_env, device="cuda")
+        # demo_policy = PPO.load("bc_policy_1", env=eval_env, device="cuda")
+
+        # 3- Load Custom Model - Imitation
+        # from imitation.policies.serialize import load_policy, policy_registry
+        # from stable_baselines3.common import policies
+        # def my_policy_loader(venv, some_param: int) -> policies.BasePolicy:
+        #     # load your policy here
+        #     return policy
+        # policy_registry.register("my-policy", my_policy_loader)
+        # demo_policy = load_policy("ppo", eval_env, path="ppo_expert.zip")
         
+        
+        # Evaluate Policy
+        if not args.render:
+            demo_policy_reward, _ = evaluate_policy(demo_policy, eval_env, 10)
+            print(f"Test Policy Reward: {demo_policy_reward}")
+            print(f"Test Policy Reward: {demo_policy_reward}")
+            print(f"Test Policy Reward: {demo_policy_reward}")
+
         # Test Policy
-        eval_env.load_rms(env_rms)
-        test_policy(eval_env, expert, render=args.render)
+        test_policy(eval_env, demo_policy, render=args.render)
 
         if args.render:
             proc.terminate()
 
+        print("Test DONE ....")
 
 if __name__ == "__main__":
     main()
