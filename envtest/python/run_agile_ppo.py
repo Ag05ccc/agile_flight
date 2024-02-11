@@ -18,6 +18,7 @@ from rpg_baselines.torch.common.ppo import PPO
 from rpg_baselines.torch.envs import vec_env_wrapper as wrapper
 from rpg_baselines.torch.common.util import test_policy
 
+# from stable_baselines3.ppo import PPO
 
 def configure_random_seed(seed, env=None):
     if env is not None:
@@ -79,7 +80,7 @@ def main():
     if args.train:
         model = PPO(
             tensorboard_log=log_dir,
-            policy="MlpPolicy",
+            policy=MlpPolicy,
             policy_kwargs=dict(
                 activation_fn=torch.nn.ReLU,
                 net_arch=[dict(pi=[256, 256], vf=[512, 512])],
