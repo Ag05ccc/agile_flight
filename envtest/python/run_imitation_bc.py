@@ -42,6 +42,8 @@ def parser():
     parser = argparse.ArgumentParser()
     parser.add_argument("--seed", type=int, default=0, help="Random seed")
     parser.add_argument("--train", type=int, default=1, help="Train the policy or evaluate the policy")
+    parser.add_argument("--teach", type=int, default=1, help="Teach the policy with imitation learning")
+    parser.add_argument("--test", type=int, default=0, help="Test the policy")
     parser.add_argument("--render", type=int, default=0, help="Render with Unity")
     parser.add_argument("--trial", type=int, default=1, help="PPO trial number")
     parser.add_argument("--iter", type=int, default=100, help="PPO iter number")
@@ -52,17 +54,11 @@ def main():
     args = parser().parse_args()
 
     # load configurations
-    cfg = YAML().load(
-        open(
-            os.environ["FLIGHTMARE_PATH"] + "/flightpy/configs/vision/config.yaml", "r"
-        )
-    )
+    cfg = YAML().load(open(os.environ["FLIGHTMARE_PATH"] + "/flightpy/configs/vision/config.yaml", "r"))
 
-    if not args.train:
-        cfg["simulation"]["num_envs"] = 1 
-
-
-    print(cfg["environment"]["goal_vel"])
+    if not args.train and not args.teach:
+        cfg["simulation"]["num_envs"] = 1
+    cfg["simulation"]["num_envs"] = 3
 
     # 1- Training environment
     train_env = AgileEnv_v1(dump(cfg, Dumper=RoundTripDumper), False)
@@ -118,39 +114,44 @@ def main():
         )
 
         
-        # # print(expert.predict(train_env.reset()))
+        # print(expert.predict(train_env.reset()))
 
-        # # model.learn(total_timesteps=int(5 * 1e7), log_interval=(10, 50))
+        # model.learn(total_timesteps=int(5 * 1e7), log_interval=(10, 50))
         expert_first.learn(total_timesteps=int(1 * 1e7), log_interval=10)
         expert_first.save("ppo_expert")
-
-        print("------------- TRAIN DONE ---------------")
-        print("------------- TRAIN DONE ---------------")
-        print("------------- TRAIN DONE ---------------")
         print("------------- TRAIN DONE ---------------")
 
-        ##--------------------- LOAD -----------------------
-        # expert = PPO.load("ppo_expert", env=train_env, device="cuda")
+
+    if args.teach:
+        # # python3 -m run_imitation_bc --render 0 --train 0 --trial 61 --iter 1700 
+        # # python3 -m run_imitation_bc --render 1 --train 0 --trial 61 --iter 1700 
+        # python3 -m run_imitation_bc --render 0 --train 0 --teach 1 --trial 0 --iter 2000
+
+        # --------------------- BC TRAINING -----------------------
+
+         # expert = PPO.load("ppo_expert", env=train_env, device="cuda")
         weight = rsg_root + "/../saved/PPO_{0}/Policy/iter_{1:05d}.pth".format(args.trial, args.iter)
         env_rms = rsg_root +"/../saved/PPO_{0}/RMS/iter_{1:05d}.npz".format(args.trial, args.iter)
         saved_variables = torch.load(weight, map_location="cuda")
         
-        # Create policy object
-        expert = MlpPolicy(**saved_variables["data"])
-        #
-        # expert.action_net = torch.nn.Sequential(expert.action_net, torch.nn.Tanh())
-        # Load weights
-        expert.load_state_dict(saved_variables["state_dict"], strict=False)
-        expert.to("cuda")
-        # 
-        eval_env.load_rms(env_rms)
+        expert_reward = -1
+        while expert_reward<0:
+            # Create policy object
+            expert = MlpPolicy(**saved_variables["data"])
+            #
+            # expert.action_net = torch.nn.Sequential(expert.action_net, torch.nn.Tanh())
+            # Load weights
+            expert.load_state_dict(saved_variables["state_dict"], strict=False)
+            expert.to("cuda")
+            # 
+            eval_env.load_rms(env_rms)
 
-        # --------------------- BC TRAINING -----------------------
-        # --------------------- BC TRAINING -----------------------
-        expert_reward, _ = evaluate_policy(expert, eval_env, n_eval_episodes=10)
-        print(f"Expert Policy Reward: {expert_reward}")
-        print(f"Expert Policy Reward: {expert_reward}")
-        print(f"Expert Policy Reward: {expert_reward}")
+            # --------------------- BC TRAINING -----------------------
+            expert_reward, _ = evaluate_policy(expert, eval_env, n_eval_episodes=10)
+            print(f"Expert Policy Reward: {expert_reward}")
+            print(f"Expert Policy Reward: {expert_reward}")
+            print(f"Expert Policy Reward: {expert_reward}")
+        
 
         # 3- Rollout
         rng = np.random.default_rng()
@@ -183,40 +184,37 @@ def main():
         # --------------------- BC TRAINING END -----------------------
         # --------------------- BC TRAINING END -----------------------
         bc_trainer.policy.save("bc_policy")
-
-    else:
-        # python3 -m run_imitation_bc --render 0 --train 0 --trial 61 --iter 1700 
-        # python3 -m run_imitation_bc --render 1 --train 0 --trial 61 --iter 1700 
-        if args.render and False:
-            proc = subprocess.Popen(os.environ["FLIGHTMARE_PATH"] + "/flightrender/RPG_Flightmare.x86_64")
         
-        # LOAD POLICY
+    if args.test:
+        
+        # Define device
+        device = get_device("auto")
+        
+        # Open Unity
+        if args.render:
+            proc = subprocess.Popen(os.environ["FLIGHTMARE_PATH"] + "/flightrender/RPG_Flightmare.x86_64")
+
+        # Policy Path
         weight = rsg_root + "/../saved/PPO_{0}/Policy/iter_{1:05d}.pth".format(args.trial, args.iter)
         env_rms = rsg_root +"/../saved/PPO_{0}/RMS/iter_{1:05d}.npz".format(args.trial, args.iter)
-        print("WEGIHT PATH : ", weight)
-        print("WEGIHT PATH : ", weight)
-        print("WEGIHT PATH : ", weight)
-        device = get_device("auto")
-        saved_variables = torch.load(weight, map_location=device)
         
-        # Create policy object
+        # 1- Load Policy from pth file
+        saved_variables = torch.load(weight, map_location=device)
         expert = MlpPolicy(**saved_variables["data"])
-        #
+        # @TODO: Why tanh is used? 
         # expert.action_net = torch.nn.Sequential(expert.action_net, torch.nn.Tanh())
         # Load weights
         expert.load_state_dict(saved_variables["state_dict"], strict=False)
         expert.to(device)
-        # 
+        
+        # 2- Load Policy from zip file 
+        # expert = PPO.load("ppo_expert", env=train_env, device="cuda")
+        
+        # Test Policy
         eval_env.load_rms(env_rms)
         test_policy(eval_env, expert, render=args.render)
 
-        # Alternatif model yukleme yontemi
-        # expert = PPO.load("ppo_expert", env=train_env, device="cuda")
-        
-        # --------------------- BC TRAINING -----------------------
-
-
-        if args.render and False:
+        if args.render:
             proc.terminate()
 
 
