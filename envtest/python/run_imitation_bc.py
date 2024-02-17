@@ -11,7 +11,7 @@ import torch
 from flightgym import AgileEnv_v1
 from ruamel.yaml import YAML, RoundTripDumper, dump
 from stable_baselines3.common.utils import get_device
-from stable_baselines3.ppo.policies import MlpPolicy
+from stable_baselines3.ppo.policies import MlpPolicy, CnnPolicy, MultiInputPolicy
 
 
 # from rpg_baselines.torch.common.ppo import PPO
@@ -30,6 +30,7 @@ from imitation.util.util import make_vec_env
 
 from imitation.algorithms import bc
 from imitation.data import rollout
+import torch as th
 
 def configure_random_seed(seed, env=None):
     if env is not None:
@@ -99,7 +100,7 @@ def main():
         
         expert_first = PPO(
             tensorboard_log=log_dir,
-            policy=MlpPolicy,
+            policy=MultiInputPolicy, #MlpPolicy,
             policy_kwargs=dict(
                 activation_fn=torch.nn.ReLU,
                 net_arch=dict(pi=[256, 256], vf=[512, 512]),
@@ -135,7 +136,7 @@ def main():
     if args.teach:
         # # python3 -m run_imitation_bc --render 0 --train 0 --trial 61 --iter 1700 
         # # python3 -m run_imitation_bc --render 1 --train 0 --trial 61 --iter 1700 
-        # python3 -m run_imitation_bc --render 0 --train 0 --teach 1 --trial 0 --iter 2000
+        # python3 -m run_imitation_bc --render 0 --train 0 --teach 1 --trial 5 --iter 2000
 
         # --------------------- BC TRAINING -----------------------
 
@@ -145,7 +146,9 @@ def main():
         saved_variables = torch.load(weight, map_location="cuda")
         
         # Create policy object
-        expert = MlpPolicy(**saved_variables["data"])
+        # expert = MlpPolicy(**saved_variables["data"])
+        expert = MultiInputPolicy(**saved_variables["data"])
+        
         #
         # expert.action_net = torch.nn.Sequential(expert.action_net, torch.nn.Tanh())
         # Load weights
@@ -159,11 +162,12 @@ def main():
         print(f"Expert Policy Reward: {expert_reward}")
         print(f"Expert Policy Reward: {expert_reward}")
         print(f"Expert Policy Reward: {expert_reward}")
-        if expert_reward < 0:
+        if expert_reward < -100:
             print("Expert Policy Reward is too low. BC training will not be performed.")
             exit()
         
-
+        print("train_env.observation_space['state'].shape:", train_env.observation_space["state"].shape)
+        print("train_env.observation_space['state'].shape:", train_env.observation_space["state"])  
         # 3- Rollout
         rng = np.random.default_rng()
         rollouts = rollout.rollout(
@@ -175,7 +179,43 @@ def main():
         )
 
         transitions = rollout.flatten_trajectories(rollouts)
+
+        # 4- bc_trainer.policy'nin  Tanimlanmasi Gerekiyor 
+        # Policy default olarak bu sekilde tanimlaniyor 
+        # SB3 Custom Policy Tanimi kullanilabilir mi
+        """ 
+        extractor = (
+                torch_layers.CombinedExtractor
+                if isinstance(observation_space, gym.spaces.Dict)
+                else torch_layers.FlattenExtractor
+            )
+            student_policy = policy_base.FeedForward32Policy(
+                observation_space=observation_space,
+                action_space=action_space,
+                # Set lr_schedule to max value to force error if policy.optimizer
+                # is used by mistake (should use self.optimizer instead).
+                lr_schedule=lambda _: th.finfo(th.float32).max,
+                features_extractor_class=extractor,
+            )
+        """
+
+        # train_env.observation_space "spaces.Space" tipinde tanimli olmali
+        # mantik olarak MultiInputPolicy hem goruntu hem deger alabildigi icin
+        # observation_space sabit bir tip olmamali
+
+
+        student_policy = MultiInputPolicy(
+                observation_space=train_env.observation_space,
+                action_space=train_env.action_space,
+                # Set lr_schedule to max value to force error if policy.optimizer
+                # is used by mistake (should use self.optimizer instead).
+                lr_schedule=lambda _: th.finfo(th.float32).max,
+                # features_extractor_class=extractor,
+            )
+        
         bc_trainer = bc.BC(
+            policy=student_policy,
+            #observation_space=train_env.observation_space["state"],  # Neden bunu bu sekilde yapmistik ?
             observation_space=train_env.observation_space,
             action_space=train_env.action_space,
             demonstrations=transitions,
@@ -187,7 +227,7 @@ def main():
         print(f"Reward before training: {reward_before_training}")
         
         # Train the Behavioral Clonning Model
-        bc_trainer.train(n_epochs=3)
+        bc_trainer.train(n_epochs=10)
         
         reward_after_training, _ = evaluate_policy(bc_trainer.policy, eval_env, 10)
         print(f"Reward before training: {reward_before_training}")
@@ -224,7 +264,7 @@ def main():
         # env_rms = rsg_root +"/../saved/PPO_{0}/RMS/iter_{1:05d}.npz".format(args.trial, args.iter)
         
         # Imitation Policy Path
-        weight = "/home/gazi13/catkin_ws_agile/src/agile_flight/envtest/save_imitation/policy_imitation/policy_imitation.pth"
+        weight = "/home/gazi13/catkin_ws_agile/src/agile_flight/envtest/save_imitation/policy_imitation/policy_imitation_1.pth"
         env_rms = None
         
         # # 1- Load Policy from pth file
