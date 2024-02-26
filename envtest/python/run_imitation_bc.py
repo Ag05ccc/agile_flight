@@ -70,6 +70,10 @@ def main():
     if not args.train and not args.teach:
         cfg["simulation"]["num_envs"] = 1
     
+    cfg["simulation"]["num_envs"] = 10
+    
+    if args.render:
+        cfg["unity"]["render"] = "yes"
 
     # 1- Training environment
     train_env = AgileEnv_v1(dump(cfg, Dumper=RoundTripDumper), False)
@@ -79,8 +83,7 @@ def main():
     configure_random_seed(args.seed, env=train_env)
     # configure_random_seed(0, env=train_env)
 
-    if args.render:
-        cfg["unity"]["render"] = "yes"
+
     
     # create evaluation environment
     old_num_envs = cfg["simulation"]["num_envs"]
@@ -95,12 +98,41 @@ def main():
     log_dir = rsg_root + "/../saved"
     os.makedirs(log_dir, exist_ok=True)
 
+    from stable_baselines3.common.torch_layers import (
+        BaseFeaturesExtractor,
+        CombinedExtractor,
+        FlattenExtractor,
+        MlpExtractor,
+        NatureCNN,
+        create_mlp,
+    )
+    
+    # expert_policy = MultiInputPolicy(observation_space=train_env.observation_space,
+    #                                  action_space = train_env.action_space,
+    #                                  lr_schedule=1,
+    #                                  features_extractor_class=CombinedExtractor(observation_space=train_env.observation_space,
+    #                                                                              normalized_image=True))
+
+
+    # Open Unity
+    if args.render:
+        proc = subprocess.Popen(os.environ["FLIGHTMARE_PATH"] + "/flightrender/RPG_Flightmare.x86_64")
+    
+    if args.render:
+        import time
+        time.sleep(10)
+        print(".... connectUnity()  ")
+        train_env.connectUnity()
+        
+        
+    
     # 2 Expert Olustur
     if args.train:
         
         expert_first = PPO(
             tensorboard_log=log_dir,
-            policy=MultiInputPolicy, #MlpPolicy,
+            # policy=MultiInputPolicy(features_extractor_class=CombinedExtractor(observation_space=train_env.observation_space, normalized_image=True)), #MlpPolicy,
+            policy=MultiInputPolicy,
             policy_kwargs=dict(
                 activation_fn=torch.nn.ReLU,
                 net_arch=dict(pi=[256, 256], vf=[512, 512]),
@@ -123,13 +155,16 @@ def main():
             verbose=1,
             device="cuda",
         )
-
+        
         
         # print(expert.predict(train_env.reset()))
-
+        print(expert_first.policy)
+        
         # model.learn(total_timesteps=int(5 * 1e7), log_interval=(10, 50))
-        expert_first.learn(total_timesteps=int(1 * 1e7), log_interval=10)
+        # expert_first.learn(total_timesteps=int(1 * 1e5), log_interval=10)
+        expert_first.learn(total_timesteps=int(5 * 1e7), log_interval=10)
         expert_first.save("ppo_expert")
+
         print("------------- TRAIN DONE ---------------")
 
 
@@ -147,6 +182,7 @@ def main():
         
         # Create policy object
         # expert = MlpPolicy(**saved_variables["data"])
+        print(saved_variables["data"])
         expert = MultiInputPolicy(**saved_variables["data"])
         
         #
@@ -162,9 +198,9 @@ def main():
         print(f"Expert Policy Reward: {expert_reward}")
         print(f"Expert Policy Reward: {expert_reward}")
         print(f"Expert Policy Reward: {expert_reward}")
-        if expert_reward < -100:
+        if expert_reward < 0:
             print("Expert Policy Reward is too low. BC training will not be performed.")
-            exit()
+            #exit()
         
         print("train_env.observation_space['state'].shape:", train_env.observation_space["state"].shape)
         print("train_env.observation_space['state'].shape:", train_env.observation_space["state"])  
@@ -177,8 +213,10 @@ def main():
             rng=rng,
             unwrap=False,
         )
+        print("Rollout Done ...")
 
         transitions = rollout.flatten_trajectories(rollouts)
+        print("Transitions Done ...")
 
         # 4- bc_trainer.policy'nin  Tanimlanmasi Gerekiyor 
         # Policy default olarak bu sekilde tanimlaniyor 
@@ -212,7 +250,8 @@ def main():
                 lr_schedule=lambda _: th.finfo(th.float32).max,
                 # features_extractor_class=extractor,
             )
-        
+        print("Student Policy Created ...")
+
         bc_trainer = bc.BC(
             policy=student_policy,
             #observation_space=train_env.observation_space["state"],  # Neden bunu bu sekilde yapmistik ?
@@ -222,12 +261,16 @@ def main():
             rng=rng,
             device="cuda",
         )
+        print("BC Trainer Created ...")
 
+        print("evaluate_policy start ... ")
         reward_before_training, _ = evaluate_policy(bc_trainer.policy, eval_env, 10)
         print(f"Reward before training: {reward_before_training}")
         
         # Train the Behavioral Clonning Model
+        print("Training start ... ")
         bc_trainer.train(n_epochs=10)
+        print("Training Done ... ")
         
         reward_after_training, _ = evaluate_policy(bc_trainer.policy, eval_env, 10)
         print(f"Reward before training: {reward_before_training}")
@@ -264,12 +307,12 @@ def main():
         # env_rms = rsg_root +"/../saved/PPO_{0}/RMS/iter_{1:05d}.npz".format(args.trial, args.iter)
         
         # Imitation Policy Path
-        weight = "/home/gazi13/catkin_ws_agile/src/agile_flight/envtest/save_imitation/policy_imitation/policy_imitation_1.pth"
+        weight = "/home/gazi13/catkin_ws_agile/src/agile_flight/envtest/save_imitation/policy_imitation/policy_imitation.pth"
         env_rms = None
         
         # # 1- Load Policy from pth file
         saved_variables = torch.load(weight, map_location=device)
-        demo_policy = MlpPolicy(**saved_variables["data"])
+        demo_policy = MultiInputPolicy(**saved_variables["data"])
         # @TODO: Why tanh is used? 
         # demo_policy.action_net = torch.nn.Sequential(demo_policy.action_net, torch.nn.Tanh())
         
@@ -309,3 +352,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
