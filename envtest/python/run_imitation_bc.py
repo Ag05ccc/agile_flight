@@ -4,7 +4,7 @@ import math
 #
 import os
 import subprocess
-
+import time
 
 import numpy as np
 import torch
@@ -12,8 +12,6 @@ from flightgym import AgileEnv_v1
 from ruamel.yaml import YAML, RoundTripDumper, dump
 from stable_baselines3.common.utils import get_device
 from stable_baselines3.ppo.policies import MlpPolicy, CnnPolicy, MultiInputPolicy
-
-
 # from rpg_baselines.torch.common.ppo import PPO
 from stable_baselines3 import PPO
 from rpg_baselines.torch.envs import vec_env_wrapper as wrapper
@@ -43,7 +41,7 @@ def parser():
     parser = argparse.ArgumentParser()
     parser.add_argument("--seed", type=int, default=0, help="Random seed")
     parser.add_argument("--train", type=int, default=1, help="Train the policy or evaluate the policy")
-    parser.add_argument("--teach", type=int, default=1, help="Teach the policy with imitation learning")
+    parser.add_argument("--teach", type=int, default=0, help="Teach the policy with imitation learning")
     parser.add_argument("--test", type=int, default=0, help="Test the policy")
     parser.add_argument("--render", type=int, default=0, help="Render with Unity")
     parser.add_argument("--trial", type=int, default=1, help="PPO trial number")
@@ -64,91 +62,91 @@ def save_mode_custom(name: str, policy):
 def main():
     args = parser().parse_args()
 
-    # load configurations
-    cfg = YAML().load(open(os.environ["FLIGHTMARE_PATH"] + "/flightpy/configs/vision/config.yaml", "r"))
-
-    if not args.train and not args.teach:
-        cfg["simulation"]["num_envs"] = 1
-    
-    cfg["simulation"]["num_envs"] = 10
-    
-    if args.render:
-        cfg["unity"]["render"] = "yes"
-
-    # 1- Training environment
-    train_env = AgileEnv_v1(dump(cfg, Dumper=RoundTripDumper), False)
-    train_env = wrapper.FlightEnvVec(train_env)
-
-    # set random seed
-    configure_random_seed(args.seed, env=train_env)
-    # configure_random_seed(0, env=train_env)
-
-
-    
-    # create evaluation environment
-    old_num_envs = cfg["simulation"]["num_envs"]
-    cfg["simulation"]["num_envs"] = 1
-    eval_env = wrapper.FlightEnvVec(
-        AgileEnv_v1(dump(cfg, Dumper=RoundTripDumper), False)
-    )
-    cfg["simulation"]["num_envs"] = old_num_envs
-
-    # save the configuration and other files
+    # Save the configuration and other files
     rsg_root = os.path.dirname(os.path.abspath(__file__))
     log_dir = rsg_root + "/../saved"
     os.makedirs(log_dir, exist_ok=True)
-
-    from stable_baselines3.common.torch_layers import (
-        BaseFeaturesExtractor,
-        CombinedExtractor,
-        FlattenExtractor,
-        MlpExtractor,
-        NatureCNN,
-        create_mlp,
-    )
+    w_path = rsg_root + "/../saved/PPO_{0}/Policy/iter_{1:05d}.pth".format(args.trial, args.iter)
     
-    # expert_policy = MultiInputPolicy(observation_space=train_env.observation_space,
-    #                                  action_space = train_env.action_space,
-    #                                  lr_schedule=1,
-    #                                  features_extractor_class=CombinedExtractor(observation_space=train_env.observation_space,
-    #                                                                              normalized_image=True))
+    if not os.path.exists(w_path):
+        print(" TRAIN MODEL ")
+        args.train = 1
+        args.teach = 0
+        args.test = 1
+        args.render = 0
+    else:
+        print(" TEST MODEL ")
+        args.train = 0
+        args.teach = 0
+        args.test = 1
+        args.render = 1
+        
+    # Load configurations
+    cfg = YAML().load(open(os.environ["FLIGHTMARE_PATH"] + "/flightpy/configs/vision/config.yaml", "r"))
+    
+    # Change config according to args
+    if not args.train and not args.teach:
+        cfg["simulation"]["num_envs"] = 1
+    else:
+        cfg["simulation"]["num_envs"] = 100
+        # cfg["simulation"]["num_threads"] = 10
+    if args.render:
+        cfg["unity"]["render"] = "yes"
 
+    # DEBUG - PERFORMANS
+    # cfg["simulation"]["num_threads"] = 10
+    # cfg["simulation"]["sim_dt"] = 0.03
+    # cfg["simulation"]["max_t"] = 20.0
+    cfg["rgb_camera"]["width"] = 800 # 160
+    cfg["rgb_camera"]["height"] = 600 # 80
+
+    # Training environment
+    train_env = AgileEnv_v1(dump(cfg, Dumper=RoundTripDumper), False)
+    train_env = wrapper.FlightEnvVec(train_env)
+    print("Train environment defined ...")
+
+    # Set random seed
+    configure_random_seed(args.seed, env=train_env)
+    
+    # Evaluation environment
+    old_num_envs = cfg["simulation"]["num_envs"]
+    cfg["simulation"]["num_envs"] = 1
+    eval_env = wrapper.FlightEnvVec(AgileEnv_v1(dump(cfg, Dumper=RoundTripDumper), False))
+    cfg["simulation"]["num_envs"] = old_num_envs
+    print("Evaluation environment defined ...")
 
     # Open Unity
-    if args.render:
-        proc = subprocess.Popen(os.environ["FLIGHTMARE_PATH"] + "/flightrender/RPG_Flightmare.x86_64")
-    
-    if args.render:
-        import time
-        time.sleep(10)
-        print(".... connectUnity()  ")
+    if args.render and args.train:
+        print("Start Unity process ...")
+        train_proc = subprocess.Popen(os.environ["FLIGHTMARE_PATH"] + "/flightrender/RPG_Flightmare.x86_64")
+        time.sleep(1)
         train_env.connectUnity()
-        
-        
+        print("Unity Connected ...")
     
-    # 2 Expert Olustur
+    # Define expert policy
     if args.train:
-        
+        n_steps_temp = 250
         expert_first = PPO(
             tensorboard_log=log_dir,
             # policy=MultiInputPolicy(features_extractor_class=CombinedExtractor(observation_space=train_env.observation_space, normalized_image=True)), #MlpPolicy,
             policy=MultiInputPolicy,
-            policy_kwargs=dict(
-                activation_fn=torch.nn.ReLU,
-                net_arch=dict(pi=[256, 256], vf=[512, 512]),
-                # net_arch=[dict(pi=[64, 64], vf=[64, 64])],
-                log_std_init=-0.5,
-            ),
+            # policy_kwargs=dict(
+            #     activation_fn=torch.nn.ReLU,
+            #     net_arch=dict(pi=[256, 256], vf=[512, 512]),
+            #     # net_arch=[dict(pi=[64, 64], vf=[64, 64])],
+            #     log_std_init=-0.5,
+            #     use_expln=True, # BEN EKLEDIM
+            # ),
             env=train_env,
             # eval_env=eval_env,
             # use_tanh_act=True,
             gae_lambda=0.95,
             gamma=0.99,
-            n_steps=250,
+            n_steps=n_steps_temp,#250,
             ent_coef=0.0,
             vf_coef=0.5,
             max_grad_norm=0.5,
-            batch_size=25000,
+            batch_size=n_steps_temp * cfg["simulation"]["num_envs"],#25000,
             clip_range=0.2,
             use_sde=False,  # don't use (gSDE), doesn't work
             # env_cfg=cfg,
@@ -156,15 +154,22 @@ def main():
             device="cuda",
         )
         
-        
-        # print(expert.predict(train_env.reset()))
+        # Debug Messages
         print(expert_first.policy)
+        print(" Expert Learning ...")
         
-        # model.learn(total_timesteps=int(5 * 1e7), log_interval=(10, 50))
-        # expert_first.learn(total_timesteps=int(1 * 1e5), log_interval=10)
-        expert_first.learn(total_timesteps=int(5 * 1e7), log_interval=10)
-        expert_first.save("ppo_expert")
+        # Learn Expert Policy
+        expert_first.learn(total_timesteps=int(5 * 1e8), log_interval=250)
 
+        # Saved trained expert policy
+        expert_first.save("ppo_expert")
+        print("Expert policy saved ...")
+
+        if args.render:
+            train_env.disconnectUnity()
+            print("Unity Disconnected ...")
+            train_proc.terminate()
+            print("Train Unity Process Terminated ...")
         print("------------- TRAIN DONE ---------------")
 
 
@@ -300,15 +305,15 @@ def main():
         
         # Open Unity
         if args.render:
-            proc = subprocess.Popen(os.environ["FLIGHTMARE_PATH"] + "/flightrender/RPG_Flightmare.x86_64")
+            test_proc = subprocess.Popen(os.environ["FLIGHTMARE_PATH"] + "/flightrender/RPG_Flightmare.x86_64")
 
         # SB3 Policy Path
-        # weight = rsg_root + "/../saved/PPO_{0}/Policy/iter_{1:05d}.pth".format(args.trial, args.iter)
-        # env_rms = rsg_root +"/../saved/PPO_{0}/RMS/iter_{1:05d}.npz".format(args.trial, args.iter)
+        weight = rsg_root + "/../saved/PPO_{0}/Policy/iter_{1:05d}.pth".format(args.trial, args.iter)
+        env_rms = rsg_root +"/../saved/PPO_{0}/RMS/iter_{1:05d}.npz".format(args.trial, args.iter)
         
         # Imitation Policy Path
-        weight = "/home/gazi13/catkin_ws_agile/src/agile_flight/envtest/save_imitation/policy_imitation/policy_imitation.pth"
-        env_rms = None
+        # weight = "/home/gazi13/catkin_ws_agile/src/agile_flight/envtest/save_imitation/policy_imitation/policy_imitation.pth"
+        # env_rms = None
         
         # # 1- Load Policy from pth file
         saved_variables = torch.load(weight, map_location=device)
@@ -343,10 +348,11 @@ def main():
             print(f"Test Policy Reward: {demo_policy_reward}")
 
         # Test Policy
-        test_policy(eval_env, demo_policy, render=args.render)
+        if not args.train:
+            test_policy(eval_env, demo_policy, render=args.render)
 
         if args.render:
-            proc.terminate()
+            test_proc.terminate()
 
         print("Test DONE ....")
 
