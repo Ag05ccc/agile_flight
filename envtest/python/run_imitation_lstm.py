@@ -30,8 +30,10 @@ from imitation.algorithms import bc
 from imitation.data import rollout
 import torch as th
 
+from sb3_contrib import RecurrentPPO
+from sb3_contrib.ppo_recurrent import MlpLstmPolicy, MultiInputLstmPolicy
+
 def configure_random_seed(seed, env=None):
-    print("seed : ",seed)
     if env is not None:
         env.seed(seed)
     np.random.seed(seed)
@@ -67,7 +69,7 @@ def main():
     rsg_root = os.path.dirname(os.path.abspath(__file__))
     log_dir = rsg_root + "/../saved"
     os.makedirs(log_dir, exist_ok=True)
-    w_path = rsg_root + "/../saved/PPO_{0}/Policy/iter_{1:05d}.pth".format(args.trial, args.iter)
+    w_path = rsg_root + "/../saved/RecurrentPPO_{0}/Policy/iter_{1:05d}.pth".format(args.trial, args.iter)
     
     if not os.path.exists(w_path):
         print(" TRAIN MODEL ")
@@ -90,7 +92,7 @@ def main():
         cfg["simulation"]["num_envs"] = 1
     else:
         cfg["simulation"]["num_envs"] = 300 #100
-        cfg["simulation"]["num_threads"] = 20
+        cfg["simulation"]["num_threads"] = 50
     if args.render:
         cfg["unity"]["render"] = "yes"
 
@@ -127,16 +129,15 @@ def main():
     # Define expert policy
     if args.train:
         n_steps_temp = 250 # 250
-        expert_first = PPO(
+        expert_first = RecurrentPPO(
             tensorboard_log=log_dir,
-            # policy=MultiInputPolicy(features_extractor_class=CombinedExtractor(observation_space=train_env.observation_space, normalized_image=True)), #MlpPolicy,
-            policy=MultiInputPolicy,
+            policy=MultiInputLstmPolicy,
             policy_kwargs=dict(
                 activation_fn=torch.nn.ReLU,
                 net_arch=dict(pi=[256, 256], vf=[512, 512]),
                 # net_arch=[dict(pi=[64, 64], vf=[64, 64])],
-                log_std_init=-0.5, # /stable_baselines3/common/distributions.py", line 172, in proba_distribution 
-                use_expln=True, # BEN EKLEDIM -nan olayını cozmesi icin
+                log_std_init=-0.5,
+                use_expln=True, # BEN EKLEDIM
             ),
             env=train_env,
             # eval_env=eval_env,
@@ -152,6 +153,7 @@ def main():
             use_sde=False,  # don't use (gSDE), doesn't work
             # env_cfg=cfg,
             verbose=1,
+            # seed=1,
             device="cuda",
         )
         
@@ -160,7 +162,7 @@ def main():
         print(" Expert Learning ...")
         start_time = time.time()
         # Learn Expert Policy
-        expert_first.learn(total_timesteps=int(20 * 1e8), log_interval=250)
+        expert_first.learn(total_timesteps=int(20 * 1e8), log_interval=100)
 
         # Saved trained expert policy
         expert_first.save("ppo_expert")
@@ -192,7 +194,7 @@ def main():
         # Create policy object
         # expert = MlpPolicy(**saved_variables["data"])
         print(saved_variables["data"])
-        expert = MultiInputPolicy(**saved_variables["data"])
+        expert = MultiInputLstmPolicy(**saved_variables["data"])
         
         #
         # expert.action_net = torch.nn.Sequential(expert.action_net, torch.nn.Tanh())
@@ -251,7 +253,7 @@ def main():
         # observation_space sabit bir tip olmamali
 
 
-        student_policy = MultiInputPolicy(
+        student_policy = MultiInputLstmPolicy(
                 observation_space=train_env.observation_space,
                 action_space=train_env.action_space,
                 # Set lr_schedule to max value to force error if policy.optimizer
@@ -312,16 +314,18 @@ def main():
             test_proc = subprocess.Popen(os.environ["FLIGHTMARE_PATH"] + "/flightrender/RPG_Flightmare.x86_64")
 
         # SB3 Policy Path
-        weight = rsg_root + "/../saved/PPO_{0}/Policy/iter_{1:05d}.pth".format(args.trial, args.iter)
-        env_rms = rsg_root +"/../saved/PPO_{0}/RMS/iter_{1:05d}.npz".format(args.trial, args.iter)
-        
+        weight = rsg_root + "/../saved/RecurrentPPO_{0}/Policy/iter_{1:05d}.pth".format(args.trial, args.iter)
+        env_rms = rsg_root +"/../saved/RecurrentPPO_{0}/RMS/iter_{1:05d}.npz".format(args.trial, args.iter)
+        print(weight)
+        print(env_rms)
         # Imitation Policy Path
         # weight = "/home/gazi13/catkin_ws_agile/src/agile_flight/envtest/save_imitation/policy_imitation/policy_imitation.pth"
         # env_rms = None
         
         # # 1- Load Policy from pth file
         saved_variables = torch.load(weight, map_location=device)
-        demo_policy = MultiInputPolicy(**saved_variables["data"])
+        demo_policy = MultiInputLstmPolicy(**saved_variables["data"])
+        
         # @TODO: Why tanh is used? 
         # demo_policy.action_net = torch.nn.Sequential(demo_policy.action_net, torch.nn.Tanh())
         
@@ -350,6 +354,8 @@ def main():
             print(f"Test Policy Reward: {demo_policy_reward}")
             print(f"Test Policy Reward: {demo_policy_reward}")
             print(f"Test Policy Reward: {demo_policy_reward}")
+            print(weight)
+            print(env_rms)
 
         # Test Policy
         if not args.train:
