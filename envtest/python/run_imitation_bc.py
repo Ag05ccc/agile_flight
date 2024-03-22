@@ -129,28 +129,23 @@ def main():
         n_steps_temp = 250 # 250
         expert_first = PPO(
             tensorboard_log=log_dir,
-            # policy=MultiInputPolicy(features_extractor_class=CombinedExtractor(observation_space=train_env.observation_space, normalized_image=True)), #MlpPolicy,
             policy=MultiInputPolicy,
             policy_kwargs=dict(
                 activation_fn=torch.nn.ReLU,
                 net_arch=dict(pi=[256, 256], vf=[512, 512]),
-                # net_arch=[dict(pi=[64, 64], vf=[64, 64])],
-                log_std_init=-0.5, # /stable_baselines3/common/distributions.py", line 172, in proba_distribution 
-                use_expln=True, # BEN EKLEDIM -nan olayını cozmesi icin
+                log_std_init=-0.5,
+                use_expln=True, # to solve 'nan' cases 
             ),
             env=train_env,
-            # eval_env=eval_env,
-            # use_tanh_act=True,
             gae_lambda=0.95,
             gamma=0.99,
             n_steps=n_steps_temp,#250,
             ent_coef=0.0,
             vf_coef=0.5,
             max_grad_norm=0.5,
-            batch_size=n_steps_temp * cfg["simulation"]["num_envs"],#25000,
+            batch_size=n_steps_temp * cfg["simulation"]["num_envs"],
             clip_range=0.2,
             use_sde=False,  # don't use (gSDE), doesn't work
-            # env_cfg=cfg,
             verbose=1,
             device="cuda",
         )
@@ -178,12 +173,7 @@ def main():
 
 
     if args.teach:
-        # # python3 -m run_imitation_bc --render 0 --train 0 --trial 61 --iter 1700 
-        # # python3 -m run_imitation_bc --render 1 --train 0 --trial 61 --iter 1700 
-        # python3 -m run_imitation_bc --render 0 --train 0 --teach 1 --trial 5 --iter 2000
-
         # --------------------- BC TRAINING -----------------------
-
          # expert = PPO.load("ppo_expert", env=train_env, device="cuda")
         weight = rsg_root + "/../saved/PPO_{0}/Policy/iter_{1:05d}.pth".format(args.trial, args.iter)
         env_rms = rsg_root +"/../saved/PPO_{0}/RMS/iter_{1:05d}.npz".format(args.trial, args.iter)
@@ -194,7 +184,6 @@ def main():
         print(saved_variables["data"])
         expert = MultiInputPolicy(**saved_variables["data"])
         
-        #
         # expert.action_net = torch.nn.Sequential(expert.action_net, torch.nn.Tanh())
         # Load weights
         expert.load_state_dict(saved_variables["state_dict"], strict=False)
@@ -246,11 +235,6 @@ def main():
             )
         """
 
-        # train_env.observation_space "spaces.Space" tipinde tanimli olmali
-        # mantik olarak MultiInputPolicy hem goruntu hem deger alabildigi icin
-        # observation_space sabit bir tip olmamali
-
-
         student_policy = MultiInputPolicy(
                 observation_space=train_env.observation_space,
                 action_space=train_env.action_space,
@@ -259,7 +243,7 @@ def main():
                 lr_schedule=lambda _: th.finfo(th.float32).max,
                 # features_extractor_class=extractor,
             )
-        print("Student Policy Created ...")
+        print("Student Policy Initialized ...")
 
         bc_trainer = bc.BC(
             policy=student_policy,
@@ -270,7 +254,7 @@ def main():
             rng=rng,
             device="cuda",
         )
-        print("BC Trainer Created ...")
+        print("BC Trainer Initialized ...")
 
         print("evaluate_policy start ... ")
         reward_before_training, _ = evaluate_policy(bc_trainer.policy, eval_env, 10)
