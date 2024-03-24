@@ -9,6 +9,7 @@ import time
 import numpy as np
 import torch
 from flightgym import AgileEnv_v1
+# from flightgym import StudentEnv_v1
 from ruamel.yaml import YAML, RoundTripDumper, dump
 from stable_baselines3.common.utils import get_device
 from stable_baselines3.ppo.policies import MlpPolicy, CnnPolicy, MultiInputPolicy
@@ -28,7 +29,11 @@ from imitation.util.util import make_vec_env
 
 from imitation.algorithms import bc
 from imitation.data import rollout
+from imitation.data.types import DictObs
 import torch as th
+
+from typing import Callable
+
 
 def configure_random_seed(seed, env=None):
     print("seed : ",seed)
@@ -60,6 +65,26 @@ def save_mode_custom(name: str, policy):
     #     save_dir=self.logger.get_dir() + "/RMS_imitation", n_iter=batch_num
     # )
 
+def linear_schedule(initial_value: float) -> Callable[[float], float]:
+    """
+    Linear learning rate schedule.
+
+    :param initial_value:
+    :return: current learning rate depending on remaining progress
+    """
+    if isinstance(initial_value, str):
+        initial_value = float(initial_value)
+
+    def func(progress_remaining: float) -> float:
+        """
+        Progress will decrease from 1 (beginning) to 0
+        :param progress_remaining: (float)
+        :return: (float)
+        """
+        return progress_remaining * initial_value
+
+    return func
+
 def main():
     args = parser().parse_args()
 
@@ -71,16 +96,16 @@ def main():
     
     if not os.path.exists(w_path):
         print(" TRAIN MODEL ")
-        args.train = 1
-        args.teach = 0
+        args.train = 0
+        args.teach = 1
         args.test = 1
         args.render = 0
     else:
         print(" TEST MODEL ")
         args.train = 0
-        args.teach = 0
+        args.teach = 1
         args.test = 1
-        args.render = 1
+        args.render = 0
         
     # Load configurations
     cfg = YAML().load(open(os.environ["FLIGHTMARE_PATH"] + "/flightpy/configs/vision/config.yaml", "r"))
@@ -89,7 +114,7 @@ def main():
     if not args.train and not args.teach:
         cfg["simulation"]["num_envs"] = 1
     else:
-        cfg["simulation"]["num_envs"] = 300 #100
+        cfg["simulation"]["num_envs"] = 5 #100
         cfg["simulation"]["num_threads"] = 20
     if args.render:
         cfg["unity"]["render"] = "yes"
@@ -102,6 +127,7 @@ def main():
     cfg["rgb_camera"]["height"] = 600 # 80
 
     # Training environment
+    cfg["environment"]["student_flag"] = False
     train_env = AgileEnv_v1(dump(cfg, Dumper=RoundTripDumper), False)
     train_env = wrapper.FlightEnvVec(train_env)
     print("Train environment defined ...")
@@ -112,8 +138,10 @@ def main():
     # Evaluation environment
     old_num_envs = cfg["simulation"]["num_envs"]
     cfg["simulation"]["num_envs"] = 1
+    cfg["environment"]["student_flag"] = True
     eval_env = wrapper.FlightEnvVec(AgileEnv_v1(dump(cfg, Dumper=RoundTripDumper), False))
     cfg["simulation"]["num_envs"] = old_num_envs
+    
     print("Evaluation environment defined ...")
 
     # Open Unity
@@ -124,6 +152,7 @@ def main():
         train_env.connectUnity()
         print("Unity Connected ...")
     
+    # DEBUG
     # Define expert policy
     if args.train:
         n_steps_temp = 250 # 250
@@ -137,6 +166,7 @@ def main():
                 use_expln=True, # to solve 'nan' cases 
             ),
             env=train_env,
+            learning_rate= linear_schedule(7e-4), #lr_schedule, #3e-4,
             gae_lambda=0.95,
             gamma=0.99,
             n_steps=n_steps_temp,#250,
@@ -189,10 +219,10 @@ def main():
         expert.load_state_dict(saved_variables["state_dict"], strict=False)
         expert.to("cuda")
         # 
-        eval_env.load_rms(env_rms)
+        # eval_env.load_rms(env_rms)
 
         # --------------------- BC TRAINING -----------------------
-        expert_reward, _ = evaluate_policy(expert, eval_env, n_eval_episodes=10)
+        expert_reward, _ = evaluate_policy(expert, train_env, n_eval_episodes=10)
         print(f"Expert Policy Reward: {expert_reward}")
         print(f"Expert Policy Reward: {expert_reward}")
         print(f"Expert Policy Reward: {expert_reward}")
@@ -217,27 +247,20 @@ def main():
         print("Transitions Done ...")
 
         # 4- bc_trainer.policy'nin  Tanimlanmasi Gerekiyor 
-        # Policy default olarak bu sekilde tanimlaniyor 
-        # SB3 Custom Policy Tanimi kullanilabilir mi
-        """ 
-        extractor = (
-                torch_layers.CombinedExtractor
-                if isinstance(observation_space, gym.spaces.Dict)
-                else torch_layers.FlattenExtractor
-            )
-            student_policy = policy_base.FeedForward32Policy(
-                observation_space=observation_space,
-                action_space=action_space,
-                # Set lr_schedule to max value to force error if policy.optimizer
-                # is used by mistake (should use self.optimizer instead).
-                lr_schedule=lambda _: th.finfo(th.float32).max,
-                features_extractor_class=extractor,
-            )
-        """
+        # DEFAULT
+        # student_policy = MultiInputPolicy(
+        #         observation_space=train_env.observation_space,
+        #         action_space=train_env.action_space,
+        #         # Set lr_schedule to max value to force error if policy.optimizer
+        #         # is used by mistake (should use self.optimizer instead).
+        #         lr_schedule=lambda _: th.finfo(th.float32).max,
+        #         # features_extractor_class=extractor,
+        #     )
 
+        # MultiInputLstmPolicy
         student_policy = MultiInputPolicy(
-                observation_space=train_env.observation_space,
-                action_space=train_env.action_space,
+                observation_space=eval_env.observation_space,
+                action_space=eval_env.action_space,
                 # Set lr_schedule to max value to force error if policy.optimizer
                 # is used by mistake (should use self.optimizer instead).
                 lr_schedule=lambda _: th.finfo(th.float32).max,
@@ -248,8 +271,8 @@ def main():
         bc_trainer = bc.BC(
             policy=student_policy,
             #observation_space=train_env.observation_space["state"],  # Neden bunu bu sekilde yapmistik ?
-            observation_space=train_env.observation_space,
-            action_space=train_env.action_space,
+            observation_space=eval_env.observation_space,
+            action_space=eval_env.action_space,
             demonstrations=transitions,
             rng=rng,
             device="cuda",
@@ -257,12 +280,18 @@ def main():
         print("BC Trainer Initialized ...")
 
         print("evaluate_policy start ... ")
+        print("bc_trainer.observation_space : ",bc_trainer.observation_space)
+        print("eval_env.observation_space   : ",eval_env.observation_space)
+        # reset_obs = eval_env.reset()
+        # print("eval_env.observation_space   : ",reset_obs.observation_space)
         reward_before_training, _ = evaluate_policy(bc_trainer.policy, eval_env, 10)
         print(f"Reward before training: {reward_before_training}")
         
         # Train the Behavioral Clonning Model
         print("Training start ... ")
-        bc_trainer.train(n_epochs=10)
+        print(bc_trainer.policy)
+        print("STUDENT OBSERVATION SPACE ", bc_trainer.policy.observation_space)
+        bc_trainer.train(n_epochs=100)
         print("Training Done ... ")
         
         reward_after_training, _ = evaluate_policy(bc_trainer.policy, eval_env, 10)
@@ -273,7 +302,7 @@ def main():
         
         # Save the trained policy
         save_mode_custom(name="policy_imitation", policy=bc_trainer.policy)
-
+        
 
         # bc_trainer.policy.save("bc_policy")
         # from stable_baselines3.common.save_util import save_to_zip_file
@@ -296,12 +325,12 @@ def main():
             test_proc = subprocess.Popen(os.environ["FLIGHTMARE_PATH"] + "/flightrender/RPG_Flightmare.x86_64")
 
         # SB3 Policy Path
-        weight = rsg_root + "/../saved/PPO_{0}/Policy/iter_{1:05d}.pth".format(args.trial, args.iter)
-        env_rms = rsg_root +"/../saved/PPO_{0}/RMS/iter_{1:05d}.npz".format(args.trial, args.iter)
+        # weight = rsg_root + "/../saved/PPO_{0}/Policy/iter_{1:05d}.pth".format(args.trial, args.iter)
+        # env_rms = rsg_root +"/../saved/PPO_{0}/RMS/iter_{1:05d}.npz".format(args.trial, args.iter)
         
         # Imitation Policy Path
-        # weight = "/home/gazi13/catkin_ws_agile/src/agile_flight/envtest/save_imitation/policy_imitation/policy_imitation.pth"
-        # env_rms = None
+        weight = "/home/gazi13/catkin_ws_agile/src/agile_flight/envtest/save_imitation/policy_imitation/policy_imitation.pth"
+        env_rms = None
         
         # # 1- Load Policy from pth file
         saved_variables = torch.load(weight, map_location=device)
