@@ -52,6 +52,7 @@ def parser():
     parser.add_argument("--render", type=int, default=0, help="Render with Unity")
     parser.add_argument("--trial", type=int, default=1, help="PPO trial number")
     parser.add_argument("--iter", type=int, default=100, help="PPO iter number")
+    parser.add_argument("--imitation", type=int, default=0, help="Imitation or Teacher Policy")
     return parser
 
 def save_mode_custom(name: str, policy):
@@ -96,16 +97,18 @@ def main():
     
     if not os.path.exists(w_path):
         print(" TRAIN MODEL ")
-        args.train = 0
-        args.teach = 1
-        args.test = 1
+        args.train = 1
+        args.teach = 0
+        args.test = 0
         args.render = 0
+        args.imitation = 0
     else:
         print(" TEST MODEL ")
         args.train = 0
-        args.teach = 1
+        args.teach = 0
         args.test = 1
-        args.render = 0
+        args.render = 1
+        args.imitation = 1
         
     # Load configurations
     cfg = YAML().load(open(os.environ["FLIGHTMARE_PATH"] + "/flightpy/configs/vision/config.yaml", "r"))
@@ -114,7 +117,7 @@ def main():
     if not args.train and not args.teach:
         cfg["simulation"]["num_envs"] = 1
     else:
-        cfg["simulation"]["num_envs"] = 5 #100
+        cfg["simulation"]["num_envs"] = 300 #100
         cfg["simulation"]["num_threads"] = 20
     if args.render:
         cfg["unity"]["render"] = "yes"
@@ -134,16 +137,17 @@ def main():
 
     # Set random seed
     configure_random_seed(args.seed, env=train_env)
-    
+
     # Evaluation environment
     old_num_envs = cfg["simulation"]["num_envs"]
     cfg["simulation"]["num_envs"] = 1
-    cfg["environment"]["student_flag"] = True
+    cfg["environment"]["student_flag"] = True # FARKLI
     eval_env = wrapper.FlightEnvVec(AgileEnv_v1(dump(cfg, Dumper=RoundTripDumper), False))
     cfg["simulation"]["num_envs"] = old_num_envs
     
     print("Evaluation environment defined ...")
-
+    
+    
     # Open Unity
     if args.render and args.train:
         print("Start Unity process ...")
@@ -229,10 +233,10 @@ def main():
         if expert_reward < 0:
             print("Expert Policy Reward is too low. BC training will not be performed.")
             #exit()
-        
-        print("train_env.observation_space['state'].shape:", train_env.observation_space["state"].shape)
-        print("train_env.observation_space['state'].shape:", train_env.observation_space["state"])  
+
         # 3- Rollout
+        # rollout.py icerisinde obs verisi okunurken ilk 65'ini alacak sekilde kesiyoruz.
+        # Bu kodlar sadece bc sirasinda kullanildigi icin diger taraflari etkilemeyecektir
         rng = np.random.default_rng()
         rollouts = rollout.rollout(
             expert,
@@ -241,22 +245,10 @@ def main():
             rng=rng,
             unwrap=False,
         )
-        print("Rollout Done ...")
 
         transitions = rollout.flatten_trajectories(rollouts)
-        print("Transitions Done ...")
 
-        # 4- bc_trainer.policy'nin  Tanimlanmasi Gerekiyor 
-        # DEFAULT
-        # student_policy = MultiInputPolicy(
-        #         observation_space=train_env.observation_space,
-        #         action_space=train_env.action_space,
-        #         # Set lr_schedule to max value to force error if policy.optimizer
-        #         # is used by mistake (should use self.optimizer instead).
-        #         lr_schedule=lambda _: th.finfo(th.float32).max,
-        #         # features_extractor_class=extractor,
-        #     )
-
+        # 4- Policy Initialization  
         # MultiInputLstmPolicy
         student_policy = MultiInputPolicy(
                 observation_space=eval_env.observation_space,
@@ -266,7 +258,6 @@ def main():
                 lr_schedule=lambda _: th.finfo(th.float32).max,
                 # features_extractor_class=extractor,
             )
-        print("Student Policy Initialized ...")
 
         bc_trainer = bc.BC(
             policy=student_policy,
@@ -277,42 +268,20 @@ def main():
             rng=rng,
             device="cuda",
         )
-        print("BC Trainer Initialized ...")
 
-        print("evaluate_policy start ... ")
-        print("bc_trainer.observation_space : ",bc_trainer.observation_space)
-        print("eval_env.observation_space   : ",eval_env.observation_space)
-        # reset_obs = eval_env.reset()
-        # print("eval_env.observation_space   : ",reset_obs.observation_space)
-        reward_before_training, _ = evaluate_policy(bc_trainer.policy, eval_env, 10)
-        print(f"Reward before training: {reward_before_training}")
-        
         # Train the Behavioral Clonning Model
-        print("Training start ... ")
-        print(bc_trainer.policy)
-        print("STUDENT OBSERVATION SPACE ", bc_trainer.policy.observation_space)
-        bc_trainer.train(n_epochs=100)
-        print("Training Done ... ")
-        
+        reward_before_training, _ = evaluate_policy(bc_trainer.policy, eval_env, 10)        
+        bc_trainer.train(n_epochs=10)
         reward_after_training, _ = evaluate_policy(bc_trainer.policy, eval_env, 10)
         print(f"Reward before training: {reward_before_training}")
         print(f"Reward after training: {reward_after_training}")
         print(f"Expert Policy Reward: {expert_reward}")
         
-        
         # Save the trained policy
         save_mode_custom(name="policy_imitation", policy=bc_trainer.policy)
         
-
-        # bc_trainer.policy.save("bc_policy")
-        # from stable_baselines3.common.save_util import save_to_zip_file
-        # from imitation.util.util import save_policy
-        # save_policy(bc_trainer.policy, "bc_policy_1")
-        # # save_stable_model(bc_trainer.policy, "bc_policy_1")
-        # # data = bc_trainer.policy._get_constructor_parameters()
-        # # state_dict = bc_trainer.policy.state_dict()
-        # # save_to_zip_file("bc_policy_1", data=data, params=state_dict)
-        
+    
+    # args.imitation = 0
     if args.test:
         
         print("Test start ....")
@@ -323,14 +292,15 @@ def main():
         # Open Unity
         if args.render:
             test_proc = subprocess.Popen(os.environ["FLIGHTMARE_PATH"] + "/flightrender/RPG_Flightmare.x86_64")
-
-        # SB3 Policy Path
-        # weight = rsg_root + "/../saved/PPO_{0}/Policy/iter_{1:05d}.pth".format(args.trial, args.iter)
-        # env_rms = rsg_root +"/../saved/PPO_{0}/RMS/iter_{1:05d}.npz".format(args.trial, args.iter)
         
-        # Imitation Policy Path
-        weight = "/home/gazi13/catkin_ws_agile/src/agile_flight/envtest/save_imitation/policy_imitation/policy_imitation.pth"
-        env_rms = None
+        if not args.imitation:
+            # SB3 Policy Path
+            weight = rsg_root + "/../saved/PPO_{0}/Policy/iter_{1:05d}.pth".format(args.trial, args.iter)
+            env_rms = rsg_root +"/../saved/PPO_{0}/RMS/iter_{1:05d}.npz".format(args.trial, args.iter)
+        else:
+            # Imitation Policy Path
+            weight = "/home/gazi13/catkin_ws_agile/src/agile_flight/envtest/save_imitation/policy_imitation/policy_imitation.pth"
+            env_rms = None
         
         # # 1- Load Policy from pth file
         saved_variables = torch.load(weight, map_location=device)
@@ -356,16 +326,22 @@ def main():
         # policy_registry.register("my-policy", my_policy_loader)
         # demo_policy = load_policy("ppo", eval_env, path="ppo_expert.zip")
         
-        
+
+
+
         # Evaluate Policy
         if not args.render or True:
             demo_policy_reward, _ = evaluate_policy(demo_policy, eval_env, 10)
+            print(weight)
             print(f"Test Policy Reward: {demo_policy_reward}")
             print(f"Test Policy Reward: {demo_policy_reward}")
             print(f"Test Policy Reward: {demo_policy_reward}")
 
         # Test Policy
         if not args.train:
+            # @TODO: LSTM ILE TEST ICIN - model.predict DUZENLENMELI !!!
+            # @TODO: LSTM ILE TEST ICIN - model.predict DUZENLENMELI !!!
+            # @TODO: LSTM ILE TEST ICIN - model.predict DUZENLENMELI !!!
             test_policy(eval_env, demo_policy, render=args.render)
 
         if args.render:
@@ -375,3 +351,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
